@@ -19,6 +19,7 @@ pub fn haversine(x0: f64, y0: f64, x1: f64, y1: f64, earth_radius: f64) -> f64 {
 
     let a = square(f64::sin(d_lat / 2.0))
         + f64::cos(lat1) * f64::cos(lat2) * square(f64::sin(d_lon / 2.0));
+
     let c = 2.0 * f64::asin(f64::sqrt(a));
 
     earth_radius * c

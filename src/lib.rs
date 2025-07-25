@@ -27,7 +27,7 @@ impl Display for Type {
 pub struct Args {
     /// Random seed
     #[arg(short, long)]
-    seed: u64,
+    pub seed: u64,
 
     /// Uniform or cluster
     #[arg(
@@ -37,9 +37,9 @@ pub struct Args {
         require_equals(false),
         default_value_t = Type::Cluster
     )]
-    ty: Type,
+    pub ty: Type,
 
     /// Whether to dump the memory
     #[arg(short, long, require_equals(false))]
-    number: u64,
+    pub number: u64,
 }
