@@ -1,9 +1,7 @@
 mod generator;
-mod haversine;
 
 use clap::Parser;
-pub use generator::{Generator, Output};
-pub use haversine::haversine;
+pub use generator::Generator;
 use std::fmt::Display;
 
 #[derive(Debug, Default, clap::ValueEnum, Clone)]
@@ -25,10 +23,6 @@ impl Display for Type {
 #[derive(Parser, Debug)]
 #[command(version, about)]
 pub struct Args {
-    /// Random seed
-    #[arg(short, long)]
-    pub seed: u64,
-
     /// Uniform or cluster
     #[arg(
         short,

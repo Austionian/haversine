@@ -1,19 +1,6 @@
 use crate::Args;
+use json::{Json, Pair};
 use rand::Rng;
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize)]
-pub struct Output {
-    pub pairs: Vec<Pair>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Pair {
-    pub x0: f64,
-    pub y0: f64,
-    pub x1: f64,
-    pub y1: f64,
-}
 
 fn create_x() -> f64 {
     rand::rng().random_range(-180.0..180.0)
@@ -26,7 +13,7 @@ fn create_y() -> f64 {
 pub struct Generator();
 
 impl Generator {
-    pub fn generate(args: &Args) -> Output {
+    pub fn generate(args: &Args) -> Json {
         let mut pairs = Vec::new();
 
         (0..args.number).for_each(|_| {
@@ -38,6 +25,6 @@ impl Generator {
             })
         });
 
-        Output { pairs }
+        Json { pairs }
     }
 }

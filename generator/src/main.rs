@@ -1,5 +1,6 @@
 use clap::Parser;
-use haversine_generator::{Args, Generator, haversine};
+use generator::{Args, Generator};
+use haversine::haversine;
 use std::{io::Write, path::PathBuf, str::FromStr};
 
 fn main() {
@@ -33,7 +34,6 @@ fn main() {
     file.write_all(&mean.to_le_bytes()).unwrap();
 
     println!("Method: {}", args.ty);
-    println!("Random seed: {}", args.seed);
     println!("Pair count: {}", args.number);
     println!("Expected mean: {mean}");
 }
