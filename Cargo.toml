@@ -1,5 +1,5 @@
 [workspace]
-members = ["generator", "haversine", "json", "parser"]
+members = [ "cpu_timer_guess_freq","generator", "haversine", "json", "parser", "platform_metrics"]
 exclude = []
 resolver = "3"
 

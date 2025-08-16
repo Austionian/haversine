@@ -12,5 +12,5 @@ pub struct Args {
 
     /// answer file path
     #[arg(short, long, require_equals(false))]
-    pub answer_path: String,
+    pub answer_path: Option<String>,
 }
