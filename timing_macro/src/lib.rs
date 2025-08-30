@@ -67,9 +67,6 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
     let stmts = function.block.stmts;
     function.block = Box::new(parse_quote!({
         use platform_metrics::{read_cpu_timer, read_os_timer, get_os_time_freq};
-        use std::sync::{LazyLock, Mutex};
-
-        pub static TIMED_FUNCTIONS: LazyLock<Mutex<Vec<(u64, String)>>> = LazyLock::new(|| Mutex::new(vec![]));
 
         let time_start = read_os_timer();
         let cpu_start = read_cpu_timer();
@@ -81,15 +78,29 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
 
         let total_cpu = cpu_end - cpu_start;
         let total_time = time_end - time_start;
-        println!("---------------");
+        println!("");
         println!(
             "Total time: {:.4}ms (CPU freq {:.0})",
             total_time as f64 / 1_000.0,
             get_os_time_freq() as f64 * total_cpu as f64 / total_time as f64
         );
+
+        TIMED_FUNCTIONS.lock().unwrap().iter().for_each(|func| {
+            println!(
+                "\t{}: {} ({:.2}%)",
+                func.1,
+                func.0,
+                (func.0) as f64 / total_cpu as f64 * 100.0,
+            );
+        })
     }));
 
-    quote!(#function)
+    quote!(
+        use std::sync::{LazyLock, Mutex};
+
+        pub static TIMED_FUNCTIONS: LazyLock<Mutex<Vec<(u64, String)>>> = LazyLock::new(|| Mutex::new(vec![]));
+        #function
+    )
 }
 
 fn expand_timing(mut function: ItemFn) -> TokenStream2 {
@@ -97,7 +108,7 @@ fn expand_timing(mut function: ItemFn) -> TokenStream2 {
     let stmts = function.block.stmts;
     function.block = Box::new(parse_quote!({
         use platform_metrics::read_cpu_timer;
-        //use crate::TIMED_FUNCTIONS;
+        use crate::TIMED_FUNCTIONS;
 
         let function_start = read_cpu_timer();
 
@@ -107,11 +118,9 @@ fn expand_timing(mut function: ItemFn) -> TokenStream2 {
 
         let function_end = read_cpu_timer();
 
-        println!("total time, {} - {}", #name, function_end - function_start);
-
-        //unsafe {
-        //    TIMED_FUNCTIONS.lock().unwrap().push((function_end - function_start, #name));
-        //}
+        unsafe {
+            TIMED_FUNCTIONS.lock().unwrap().push((function_end - function_start, #name.to_string()));
+        }
 
         output
     }));
