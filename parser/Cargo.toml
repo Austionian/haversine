@@ -10,3 +10,4 @@ clap = { version = "4.5.41", features = ["derive"] }
 haversine = { path = "../haversine" }
 json = { path = "../json" }
 platform_metrics = { path = "../platform_metrics" }
+timing_macro = { path = "../timing_macro" }

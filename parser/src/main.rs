@@ -1,9 +1,24 @@
+mod parser;
+
 use clap::Parser;
 use haversine::haversine;
-use parser::{Args, parse};
-use platform_metrics::{get_os_time_freq, read_cpu_timer, read_os_timer};
+use parser::parse;
 use std::fs;
+use timing_macro::time_main;
 
+#[derive(Parser, Debug)]
+#[command(version, about)]
+pub struct Args {
+    /// input json file path
+    #[arg(short, long, require_equals(false))]
+    pub json_path: String,
+
+    /// answer file path
+    #[arg(short, long, require_equals(false))]
+    pub answer_path: Option<String>,
+}
+
+#[time_main]
 fn main() {
     let time_start = read_os_timer();
     let cpu_start = read_cpu_timer();
@@ -60,12 +75,12 @@ Difference: {}
         );
     }
 
-    println!("---------------");
     let total_cpu = cpu_end - cpu_start;
+    let total_time = time_end - time_start;
     println!(
         "Total time: {:.4}ms (CPU freq {:.0})",
-        (time_end - time_start) as f64 / 1_000.0,
-        get_os_time_freq() as f64 * (cpu_end - cpu_start) as f64 / (time_end - time_start) as f64
+        total_time as f64 / 1_000.0,
+        get_os_time_freq() as f64 * total_cpu as f64 / total_time as f64
     );
     println!(
         "\tStartup: {} ({:.2}%)",

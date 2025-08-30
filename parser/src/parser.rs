@@ -1,5 +1,6 @@
 use json::{Json, Pair};
 use std::{fmt::Debug, str::FromStr};
+use timing_macro::time_function;
 
 enum JsonError {
     Pair(String),
@@ -109,6 +110,7 @@ impl FromStr for PairWrapper {
 ///     ]
 /// }
 /// ```
+#[time_function]
 pub fn parse(input: &str) -> Json {
     input.parse::<JsonWrapper>().expect("error parsing json").0
 }
