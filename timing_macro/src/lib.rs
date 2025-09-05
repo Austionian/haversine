@@ -1,10 +1,10 @@
 extern crate core;
 
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use quote::quote;
 use syn::parse::{Nothing, Result};
-use syn::{ItemFn, parse_quote};
+use syn::{Expr, ExprTuple, ItemFn, parse_macro_input, parse_quote};
 
 #[proc_macro_attribute]
 pub fn time_function(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -78,7 +78,6 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
 
         let total_cpu = cpu_end - cpu_start;
         let total_time = time_end - time_start;
-        println!("");
         println!(
             "Total time: {:.4}ms (CPU freq {:.0})",
             total_time as f64 / 1_000.0,
@@ -128,6 +127,37 @@ fn expand_timing(mut function: ItemFn) -> TokenStream2 {
     quote!(#function)
 }
 
-macro_rules! time_block {
-    ($code:tt) => {{}};
+/// Macro to instrumentally time an expression or block of code.
+/// Requires that main is marked with `#[time_main]`
+///
+/// Must be inputted as a tuple.
+///
+/// time_block!(("block_name", let a = 5))
+#[proc_macro]
+pub fn time_block(input: TokenStream) -> TokenStream {
+    let expr_tuple: ExprTuple = parse_macro_input!(input as ExprTuple);
+    let block_name = match &expr_tuple.elems[0] {
+        Expr::Lit(expr_lit) => {
+            if let syn::Lit::Str(str_lit) = &expr_lit.lit {
+                str_lit.value()
+            } else {
+                panic!("First argument must be a string literal");
+            }
+        }
+        _ => panic!("First argument must be a string literal"),
+    };
+    let expr = expr_tuple.elems[1].clone();
+    let start = Ident::new(&format!("start_{}", block_name), Span::call_site());
+    let end = Ident::new(&format!("end_{}", block_name), Span::call_site());
+
+    quote!(
+        let #start = read_cpu_timer();
+        #expr;
+        let #end = read_cpu_timer();
+
+        unsafe {
+            TIMED_FUNCTIONS.lock().unwrap().push((#end - #start, #block_name.to_string()));
+        }
+    )
+    .into()
 }
