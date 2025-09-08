@@ -322,6 +322,7 @@ dependencies = [
 name = "timing_macro"
 version = "0.1.0"
 dependencies = [
+ "platform_metrics",
  "proc-macro2",
  "quote",
  "syn",
