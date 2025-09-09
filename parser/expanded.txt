@@ -404,6 +404,27 @@ impl ::core::fmt::Debug for Args {
     }
 }
 use std::sync::{LazyLock, Mutex};
+use platform_metrics::read_cpu_timer;
+pub struct Timer {
+    pub name: String,
+    pub start: u64,
+}
+impl Timer {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            start: read_cpu_timer(),
+        }
+    }
+}
+impl Drop for Timer {
+    fn drop(&mut self) {
+        let function_end = read_cpu_timer();
+        unsafe {
+            TIMED_FUNCTIONS.lock().unwrap().push((function_end - self.start, self.name));
+        }
+    }
+}
 pub static TIMED_FUNCTIONS: LazyLock<Mutex<Vec<(u64, String)>>> = LazyLock::new(|| Mutex::new(
     ::alloc::vec::Vec::new(),
 ));
@@ -411,39 +432,26 @@ fn main() {
     use platform_metrics::{read_cpu_timer, read_os_timer, get_os_time_freq};
     let time_start = read_os_timer();
     let cpu_start = read_cpu_timer();
-    let start_startup = read_cpu_timer();
-    let args = Args::parse();
-    let end_startup = read_cpu_timer();
-    unsafe {
-        TIMED_FUNCTIONS
-            .lock()
-            .unwrap()
-            .push((end_startup - start_startup, "startup".to_string()));
+    let args = {
+        use crate::Timer;
+        let timer = Timer::new("startup");
+        Args::parse()
     };
-    let start_read = read_cpu_timer();
-    let input = String::from_utf8(
-            fs::read(&args.json_path).expect("Unable to json read file"),
-        )
-        .expect("Invalid utf-8 string");
-    let end_read = read_cpu_timer();
-    unsafe {
-        TIMED_FUNCTIONS
-            .lock()
-            .unwrap()
-            .push((end_read - start_read, "read".to_string()));
+    let input = {
+        use crate::Timer;
+        let timer = Timer::new("read");
+        String::from_utf8(fs::read(&args.json_path).expect("Unable to json read file"))
+            .expect("Invalid utf-8 string")
     };
     let parsed_json = parse(&input);
-    let start_sum = read_cpu_timer();
-    {
-        let sum = parsed_json
+    let sum = {
+        use crate::Timer;
+        let timer = Timer::new("sum");
+        parsed_json
             .pairs
             .iter()
             .map(|pair| haversine(pair.x0, pair.y0, pair.x1, pair.y1, 6372.8))
-            .sum::<f64>() / parsed_json.pairs.len() as f64;
-    };
-    let end_sum = read_cpu_timer();
-    unsafe {
-        TIMED_FUNCTIONS.lock().unwrap().push((end_sum - start_sum, "sum".to_string()));
+            .sum::<f64>() / parsed_json.pairs.len() as f64
     };
     {
         ::std::io::_print(

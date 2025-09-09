@@ -20,25 +20,31 @@ pub struct Args {
 
 #[time_main]
 fn main() {
-    time_block!(("startup", let args = Args::parse()));
+    let args = {
+        time_block!("startup");
 
-    time_block!((
-        "read",
-        let input = String::from_utf8(
-            fs::read(&args.json_path)
-                .expect("Unable to json read file")
-            )
-        .expect("Invalid utf-8 string")
-    ));
+        Args::parse()
+    };
+
+    let input = {
+        time_block!("read");
+
+        String::from_utf8(fs::read(&args.json_path).expect("Unable to json read file"))
+            .expect("Invalid utf-8 string")
+    };
 
     let parsed_json = parse(&input);
 
-    time_block!(("sum", let sum = parsed_json
-        .pairs
-        .iter()
-        .map(|pair| haversine(pair.x0, pair.y0, pair.x1, pair.y1, 6372.8))
-        .sum::<f64>()
-        / parsed_json.pairs.len() as f64));
+    let sum = {
+        time_block!("sum");
+
+        parsed_json
+            .pairs
+            .iter()
+            .map(|pair| haversine(pair.x0, pair.y0, pair.x1, pair.y1, 6372.8))
+            .sum::<f64>()
+            / parsed_json.pairs.len() as f64
+    };
 
     println!(
         "RESULTS

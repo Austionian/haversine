@@ -1,10 +1,10 @@
 extern crate core;
 
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::parse::{Nothing, Result};
-use syn::{Expr, ExprTuple, ItemFn, parse_macro_input, parse_quote};
+use syn::{parse_macro_input, parse_quote, ItemFn, Lit};
 
 #[proc_macro_attribute]
 pub fn time_function(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -96,6 +96,34 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
 
     quote!(
         use std::sync::{LazyLock, Mutex};
+        use platform_metrics::read_cpu_timer;
+
+        pub struct Timer {
+            pub name: String,
+            pub start: u64,
+        }
+
+        impl Timer {
+            pub fn new(name: &str) -> Self {
+                Self {
+                    name: name.to_string(),
+                    start: read_cpu_timer(),
+                }
+            }
+        }
+
+        impl Drop for Timer {
+            fn drop(&mut self) {
+                let function_end = read_cpu_timer();
+
+                unsafe {
+                    TIMED_FUNCTIONS
+                        .lock()
+                        .unwrap()
+                        .push((function_end - self.start, self.name.to_string()));
+                }
+            }
+        }
 
         pub static TIMED_FUNCTIONS: LazyLock<Mutex<Vec<(u64, String)>>> = LazyLock::new(|| Mutex::new(vec![]));
         #function
@@ -135,29 +163,11 @@ fn expand_timing(mut function: ItemFn) -> TokenStream2 {
 /// time_block!(("block_name", let a = 5))
 #[proc_macro]
 pub fn time_block(input: TokenStream) -> TokenStream {
-    let expr_tuple: ExprTuple = parse_macro_input!(input as ExprTuple);
-    let block_name = match &expr_tuple.elems[0] {
-        Expr::Lit(expr_lit) => {
-            if let syn::Lit::Str(str_lit) = &expr_lit.lit {
-                str_lit.value()
-            } else {
-                panic!("First argument must be a string literal");
-            }
-        }
-        _ => panic!("First argument must be a string literal"),
-    };
-    let expr = expr_tuple.elems[1].clone();
-    let start = Ident::new(&format!("start_{}", block_name), Span::call_site());
-    let end = Ident::new(&format!("end_{}", block_name), Span::call_site());
-
+    let block_name: Lit = parse_macro_input!(input as Lit);
     quote!(
-        let #start = read_cpu_timer();
-        #expr;
-        let #end = read_cpu_timer();
+        use crate::Timer;
 
-        unsafe {
-            TIMED_FUNCTIONS.lock().unwrap().push((#end - #start, #block_name.to_string()));
-        }
+        let timer = Timer::new(#block_name);
     )
     .into()
 }
