@@ -78,18 +78,20 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
 
         let total_cpu = cpu_end - cpu_start;
         let total_time = time_end - time_start;
+
         println!(
             "Total time: {:.4}ms (CPU freq {:.0})",
             total_time as f64 / 1_000.0,
             get_os_time_freq() as f64 * total_cpu as f64 / total_time as f64
         );
 
-        TIMED_FUNCTIONS.lock().unwrap().iter().for_each(|func| {
+        TIMED.lock().unwrap().iter().for_each(|(key, value)| {
             println!(
-                "\t{}: {} ({:.2}%)",
-                func.1,
-                func.0,
-                (func.0) as f64 / total_cpu as f64 * 100.0,
+                "\t{}[{}]: {} ({:.2}%)",
+                key,
+                value.count,
+                value.cycles,
+                (value.cycles) as f64 / total_cpu as f64 * 100.0,
             );
         })
     }));
@@ -97,18 +99,29 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
     quote!(
         use std::sync::{LazyLock, Mutex};
         use platform_metrics::read_cpu_timer;
+        use std::collections::HashMap;
 
+        #[derive(Clone, Debug)]
         pub struct Timer {
             pub name: String,
             pub start: u64,
         }
 
+        pub struct Timed {
+            pub count: usize,
+            pub cycles: u64,
+    }
+
         impl Timer {
             pub fn new(name: &str) -> Self {
-                Self {
+                let timer = Self {
                     name: name.to_string(),
                     start: read_cpu_timer(),
-                }
+                };
+
+                TIMING_STACK.lock().unwrap().push((timer.start, name.to_string()));
+
+                timer
             }
         }
 
@@ -116,16 +129,53 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
             fn drop(&mut self) {
                 let function_end = read_cpu_timer();
 
+                let mut lock = TIMING_STACK.lock().unwrap();
+                let timer = lock.pop().expect("Pop on an empty vec");
+                let cycles = function_end - timer.0;
+
+                // Check if there's a parent in the stack
+                if lock.len() > 0 {
+                    // If so update its value by adding the time already accounted for in its
+                    // child so that we don't double count time.
+                    let mut parent = lock.pop().unwrap();
+                    parent.0 += cycles;
+                    lock.push(parent);
+                }
+
+            //time1 - 0
+            //time2 - 10
+            //time3 - 23
+            //
+            //end
+            //time3 - 33
+            //time2 - 40
+            //time1 - 55
+            //
+            //time3 = 10
+            //time2 = 20
+            //time1 = 35
+
+            // time1 should be 25. We're double counting time3's 10
+
                 unsafe {
-                    TIMED_FUNCTIONS
+                    TIMED
                         .lock()
                         .unwrap()
-                        .push((function_end - self.start, self.name.to_string()));
+                        .entry(timer.1.clone())
+                        .and_modify(|timed| {
+                            timed.count += 1;
+                            timed.cycles += cycles;
+                        })
+                        .or_insert(Timed {
+                            count: 1,
+                            cycles,
+                        });
                 }
             }
         }
 
-        pub static TIMED_FUNCTIONS: LazyLock<Mutex<Vec<(u64, String)>>> = LazyLock::new(|| Mutex::new(vec![]));
+        pub static TIMING_STACK: LazyLock<Mutex<Vec<(u64, String)>>> = LazyLock::new(|| Mutex::new(vec![]));
+        pub static TIMED: LazyLock<Mutex<HashMap<String, Timed>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
         #function
     )
 }
@@ -135,19 +185,14 @@ fn expand_timing(mut function: ItemFn) -> TokenStream2 {
     let stmts = function.block.stmts;
     function.block = Box::new(parse_quote!({
         use platform_metrics::read_cpu_timer;
-        use crate::TIMED_FUNCTIONS;
-
-        let function_start = read_cpu_timer();
+        use timing_macro::time_block;
+        use crate::{TIMING_STACK, TIMED};
 
         let output = {
+            time_block!(#name);
+
             #(#stmts)*
         };
-
-        let function_end = read_cpu_timer();
-
-        unsafe {
-            TIMED_FUNCTIONS.lock().unwrap().push((function_end - function_start, #name.to_string()));
-        }
 
         output
     }));
@@ -155,12 +200,16 @@ fn expand_timing(mut function: ItemFn) -> TokenStream2 {
     quote!(#function)
 }
 
-/// Macro to instrumentally time an expression or block of code.
+/// Macro to instrumentally time a block of code.
 /// Requires that main is marked with `#[time_main]`
 ///
-/// Must be inputted as a tuple.
+/// ```
+/// let output = {
+///     time_block!("block_name");
 ///
-/// time_block!(("block_name", let a = 5))
+///     // expressions
+/// }
+/// ```
 #[proc_macro]
 pub fn time_block(input: TokenStream) -> TokenStream {
     let block_name: Lit = parse_macro_input!(input as Lit);

@@ -50,41 +50,57 @@ mod parser {
         }
     }
     fn parse_f64(s: &str) -> Result<f64, JsonError> {
-        if s.contains('}') {
-            return parse_f64(s.split_once('}').unwrap().0);
-        }
-        match s.parse::<f64>() {
-            Ok(v) => Ok(v),
-            Err(_) => Err(JsonError::Value(s.to_string())),
-        }
+        use platform_metrics::read_cpu_timer;
+        use timing_macro::time_block;
+        use crate::{TIMING_STACK, TIMED};
+        let output = {
+            use crate::Timer;
+            let timer = Timer::new("parse_f64");
+            if s.contains('}') {
+                return parse_f64(s.split_once('}').unwrap().0);
+            }
+            match s.parse::<f64>() {
+                Ok(v) => Ok(v),
+                Err(_) => Err(JsonError::Value(s.to_string())),
+            }
+        };
+        output
     }
     impl FromStr for PairWrapper {
         type Err = JsonError;
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            let mut pair = Pair {
-                x0: 0.0,
-                y0: 0.0,
-                x1: 0.0,
-                y1: 0.0,
-            };
-            for kv in s.split(',') {
-                if kv.is_empty() {
-                    continue;
-                }
-                match kv.split_once(':') {
-                    Some((key, value)) => {
-                        match key {
-                            "\"x0\"" => pair.x0 = parse_f64(value)?,
-                            "\"x1\"" => pair.x1 = parse_f64(value)?,
-                            "\"y0\"" => pair.y0 = parse_f64(value)?,
-                            "\"y1\"" => pair.y1 = parse_f64(value)?,
-                            _ => return Err(JsonError::Key(key.to_string())),
-                        }
+            use platform_metrics::read_cpu_timer;
+            use timing_macro::time_block;
+            use crate::{TIMING_STACK, TIMED};
+            let output = {
+                use crate::Timer;
+                let timer = Timer::new("from_str");
+                let mut pair = Pair {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: 0.0,
+                    y1: 0.0,
+                };
+                for kv in s.split(',') {
+                    if kv.is_empty() {
+                        continue;
                     }
-                    None => return Err(JsonError::Pair(kv.to_string())),
+                    match kv.split_once(':') {
+                        Some((key, value)) => {
+                            match key {
+                                "\"x0\"" => pair.x0 = parse_f64(value)?,
+                                "\"x1\"" => pair.x1 = parse_f64(value)?,
+                                "\"y0\"" => pair.y0 = parse_f64(value)?,
+                                "\"y1\"" => pair.y1 = parse_f64(value)?,
+                                _ => return Err(JsonError::Key(key.to_string())),
+                            }
+                        }
+                        None => return Err(JsonError::Pair(kv.to_string())),
+                    }
                 }
-            }
-            Ok(PairWrapper(pair))
+                Ok(PairWrapper(pair))
+            };
+            output
         }
     }
     /// ! __Not a general use json parser__ !
@@ -107,16 +123,13 @@ mod parser {
     /// ```
     pub fn parse(input: &str) -> Json {
         use platform_metrics::read_cpu_timer;
-        use crate::TIMED_FUNCTIONS;
-        let function_start = read_cpu_timer();
-        let output = { input.parse::<JsonWrapper>().expect("error parsing json").0 };
-        let function_end = read_cpu_timer();
-        unsafe {
-            TIMED_FUNCTIONS
-                .lock()
-                .unwrap()
-                .push((function_end - function_start, "parse".to_string()));
-        }
+        use timing_macro::time_block;
+        use crate::{TIMING_STACK, TIMED};
+        let output = {
+            use crate::Timer;
+            let timer = Timer::new("parse");
+            input.parse::<JsonWrapper>().expect("error parsing json").0
+        };
         output
     }
 }
@@ -405,28 +418,81 @@ impl ::core::fmt::Debug for Args {
 }
 use std::sync::{LazyLock, Mutex};
 use platform_metrics::read_cpu_timer;
+use std::collections::HashMap;
 pub struct Timer {
     pub name: String,
     pub start: u64,
 }
+#[automatically_derived]
+impl ::core::clone::Clone for Timer {
+    #[inline]
+    fn clone(&self) -> Timer {
+        Timer {
+            name: ::core::clone::Clone::clone(&self.name),
+            start: ::core::clone::Clone::clone(&self.start),
+        }
+    }
+}
+#[automatically_derived]
+impl ::core::fmt::Debug for Timer {
+    #[inline]
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        ::core::fmt::Formatter::debug_struct_field2_finish(
+            f,
+            "Timer",
+            "name",
+            &self.name,
+            "start",
+            &&self.start,
+        )
+    }
+}
+pub struct Timed {
+    pub count: usize,
+    pub cycles: u64,
+}
 impl Timer {
     pub fn new(name: &str) -> Self {
-        Self {
+        let timer = Self {
             name: name.to_string(),
             start: read_cpu_timer(),
-        }
+        };
+        TIMING_STACK.lock().unwrap().push((timer.start, name.to_string()));
+        timer
     }
 }
 impl Drop for Timer {
     fn drop(&mut self) {
         let function_end = read_cpu_timer();
+        let mut lock = TIMING_STACK.lock().unwrap();
+        let timer = lock.pop().expect("Pop on an empty vec");
+        let cycles = function_end - timer.0;
+        if lock.len() > 0 {
+            let mut parent = lock.pop().unwrap();
+            if parent.1 != &timer.1 {
+                parent.0 += cycles;
+                lock.push(parent);
+            }
+            lock.push(parent);
+        }
         unsafe {
-            TIMED_FUNCTIONS.lock().unwrap().push((function_end - self.start, self.name));
+            TIMED
+                .lock()
+                .unwrap()
+                .entry(timer.1.clone())
+                .and_modify(|timed| {
+                    timed.count += 1;
+                    timed.cycles += cycles;
+                })
+                .or_insert(Timed { count: 1, cycles });
         }
     }
 }
-pub static TIMED_FUNCTIONS: LazyLock<Mutex<Vec<(u64, String)>>> = LazyLock::new(|| Mutex::new(
+pub static TIMING_STACK: LazyLock<Mutex<Vec<(u64, String)>>> = LazyLock::new(|| Mutex::new(
     ::alloc::vec::Vec::new(),
+));
+pub static TIMED: LazyLock<Mutex<HashMap<String, Timed>>> = LazyLock::new(|| Mutex::new(
+    HashMap::new(),
 ));
 fn main() {
     use platform_metrics::{read_cpu_timer, read_os_timer, get_os_time_freq};
@@ -504,18 +570,19 @@ fn main() {
             ),
         );
     };
-    TIMED_FUNCTIONS
+    TIMED
         .lock()
         .unwrap()
         .iter()
-        .for_each(|func| {
+        .for_each(|(key, value)| {
             {
                 ::std::io::_print(
                     format_args!(
-                        "\t{0}: {1} ({2:.2}%)\n",
-                        func.1,
-                        func.0,
-                        (func.0) as f64 / total_cpu as f64 * 100.0,
+                        "\t{0}[{1}]: {2} ({3:.2}%)\n",
+                        key,
+                        value.count,
+                        value.cycles,
+                        (value.cycles) as f64 / total_cpu as f64 * 100.0,
                     ),
                 );
             };
