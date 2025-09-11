@@ -4,7 +4,7 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::parse::{Nothing, Result};
-use syn::{parse_macro_input, parse_quote, ItemFn, Lit};
+use syn::{ItemFn, Lit, parse_macro_input, parse_quote};
 
 #[proc_macro_attribute]
 pub fn time_function(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -31,6 +31,34 @@ pub fn time_function(args: TokenStream, input: TokenStream) -> TokenStream {
     })
 }
 
+/// Example use of `#[time_main]`
+///
+/// ```
+/// use timing_macro::{time_block, time_function, time_main};
+///
+/// #[time_main]
+/// fn main() {
+///     let ans = {
+///         fib(6)
+///     };
+///
+///     assert_eq!(ans, 13);
+///
+///     // inside baseball - shows the fib function was timed as a single function
+///     // and was executed 25 times.
+///     assert_eq!(TIMED.lock().unwrap().len(), 1);
+///     assert_eq!(TIMED.lock().unwrap().get("fib").unwrap().count, 25);
+///}
+///
+///
+/// #[time_function]
+/// fn fib(x: usize) -> usize {
+///     if x == 0 || x == 1 {
+///         return 1;
+///     }
+///
+///     fib(x - 1) + fib(x - 2)
+/// }
 #[proc_macro_attribute]
 pub fn time_main(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = TokenStream2::from(args);
@@ -131,31 +159,26 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
 
                 let mut lock = TIMING_STACK.lock().unwrap();
                 let timer = lock.pop().expect("Pop on an empty vec");
-                let cycles = function_end - timer.0;
+                let mut cycles = function_end - timer.0;
 
                 // Check if there's a parent in the stack
                 if lock.len() > 0 {
-                    // If so update its value by adding the time already accounted for in its
-                    // child so that we don't double count time.
-                    let mut parent = lock.pop().unwrap();
-                    parent.0 += cycles;
-                    lock.push(parent);
+                    //let mut parent = lock.pop().unwrap();
+                    //// If the parent is the same name as the child, set cycles to 0 since we're
+                    //// in a recursive block.
+                    //if parent.1 == timer.1 {
+                    //    cycles = 0;
+                    //    lock.push(parent);
+                    //} else {
+                    //    // Else update the parents' time so as not to double count the cycles spent
+                    //    // in the child's block.
+                    //    lock.push(parent);
+
+                        lock.iter_mut().for_each(|parent| {
+                            parent.0 += cycles;
+                        });
+                    //}
                 }
-
-            //time1 - 0
-            //time2 - 10
-            //time3 - 23
-            //
-            //end
-            //time3 - 33
-            //time2 - 40
-            //time1 - 55
-            //
-            //time3 = 10
-            //time2 = 20
-            //time1 = 35
-
-            // time1 should be 25. We're double counting time3's 10
 
                 unsafe {
                     TIMED
@@ -203,7 +226,7 @@ fn expand_timing(mut function: ItemFn) -> TokenStream2 {
 /// Macro to instrumentally time a block of code.
 /// Requires that main is marked with `#[time_main]`
 ///
-/// ```
+/// ```ignore
 /// let output = {
 ///     time_block!("block_name");
 ///
