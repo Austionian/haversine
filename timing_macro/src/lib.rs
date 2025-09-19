@@ -111,7 +111,17 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
             get_os_time_freq() as f64 * total_cpu as f64 / total_time as f64
         );
 
+        // Create a vec of times to sort. doesn't affect instrumentation timing as all the timing
+        // information has already been captured.
+        let mut times = Vec::new();
+
+        // Consuming a LazyLock is only in nightly, so manually create the vec.
         TIMED.lock().unwrap().iter().for_each(|(key, value)| {
+            times.push((key.clone(), value.clone()));
+        });
+
+        times.sort_by(|(_, Timed { cycles: a, .. }), (_, Timed { cycles: b, ..})| b.cmp(&a));
+        times.iter().for_each(|(key, value)| {
             println!(
                 "\t{}[{}]: {} ({:.2}%)",
                 key,
@@ -133,10 +143,66 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
             pub start: u64,
         }
 
+        #[derive(Clone)]
         pub struct Timed {
             pub count: usize,
             pub cycles: u64,
-    }
+        }
+
+        // A function/ block in the timing stack currently being executed
+        pub struct Timing {
+            // name of the function/ block being timed
+            pub name: String,
+            // cycle at which the function/ block started
+            pub start: u64,
+            // total number of cycles spent executing this function/ block
+            pub cycles: u64,
+        }
+
+        pub struct TimingStack {
+            // the stack of functions/ blocks being timed
+            pub stack: Vec<Timing>,
+        }
+
+        impl TimingStack {
+            pub fn new() -> Self {
+                TimingStack {
+                    stack: vec![],
+                }
+            }
+
+            pub fn push(&mut self, value: Timing) {
+                self.stack.push(value);
+            }
+
+            /// Returns the Timing instance its cycle count
+            pub fn pop(&mut self, function_end: u64) -> Timing {
+                let mut timing = self.stack.pop().expect("pop on an empty timing stack");
+                timing.cycles = function_end - timing.start;
+
+                if self.stack.len() > 0 {
+                    // Accumulate the time spent in the popped function/ block to its parents.
+                    //
+                    // Wish there was a cleaner way to do this w/o a loop, but need to mark when
+                    // some accumulating value is relevent or not.
+                    self.stack.iter_mut().for_each(|parent| {
+                        parent.start += timing.cycles;
+                    });
+                }
+
+                timing
+            }
+        }
+
+        impl Timing {
+            pub fn new(name: &str, start: u64) -> Self {
+                Timing {
+                    name: name.to_string(),
+                    start,
+                    cycles: 0,
+                }
+            }
+        }
 
         impl Timer {
             pub fn new(name: &str) -> Self {
@@ -145,7 +211,9 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
                     start: read_cpu_timer(),
                 };
 
-                TIMING_STACK.lock().unwrap().push((timer.start, name.to_string()));
+                TIMING_STACK.lock().expect("unable to lock when pushing").push(
+                    Timing::new(name, timer.start)
+                );
 
                 timer
             }
@@ -153,24 +221,16 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
 
         impl Drop for Timer {
             fn drop(&mut self) {
-                let function_end = read_cpu_timer();
-
-                let mut lock = TIMING_STACK.lock().unwrap();
-                let timer = lock.pop().expect("Pop on an empty vec");
-                let mut cycles = function_end - timer.0;
-
-                // Check if there's a parent in the stack
-                if lock.len() > 0 {
-                    lock.iter_mut().for_each(|parent| {
-                        parent.0 += cycles;
-                    });
-                }
+                let Timing { name, cycles, .. } = TIMING_STACK
+                    .lock()
+                    .expect("unable to lock when dropping")
+                    .pop(read_cpu_timer());
 
                 unsafe {
                     TIMED
                         .lock()
                         .unwrap()
-                        .entry(timer.1.clone())
+                        .entry(name.clone())
                         .and_modify(|timed| {
                             timed.count += 1;
                             timed.cycles += cycles;
@@ -183,8 +243,10 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
             }
         }
 
-        pub static TIMING_STACK: LazyLock<Mutex<Vec<(u64, String)>>> = LazyLock::new(|| Mutex::new(vec![]));
+        // initialize the global variables
+        pub static TIMING_STACK: LazyLock<Mutex<TimingStack>> = LazyLock::new(|| Mutex::new(TimingStack::new()));
         pub static TIMED: LazyLock<Mutex<HashMap<String, Timed>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
         #function
     )
 }
