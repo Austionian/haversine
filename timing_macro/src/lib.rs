@@ -38,9 +38,7 @@ pub fn time_function(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// #[time_main]
 /// fn main() {
-///     let ans = {
-///         fib(6)
-///     };
+///     let ans = fib(6);
 ///
 ///     assert_eq!(ans, 13);
 ///
@@ -163,21 +161,9 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
 
                 // Check if there's a parent in the stack
                 if lock.len() > 0 {
-                    //let mut parent = lock.pop().unwrap();
-                    //// If the parent is the same name as the child, set cycles to 0 since we're
-                    //// in a recursive block.
-                    //if parent.1 == timer.1 {
-                    //    cycles = 0;
-                    //    lock.push(parent);
-                    //} else {
-                    //    // Else update the parents' time so as not to double count the cycles spent
-                    //    // in the child's block.
-                    //    lock.push(parent);
-
-                        lock.iter_mut().for_each(|parent| {
-                            parent.0 += cycles;
-                        });
-                    //}
+                    lock.iter_mut().for_each(|parent| {
+                        parent.0 += cycles;
+                    });
                 }
 
                 unsafe {
