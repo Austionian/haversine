@@ -13,3 +13,6 @@ platform_metrics = { path = "../platform_metrics" }
 
 [lib]
 proc-macro = true
+
+[features]
+profile = []

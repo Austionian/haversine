@@ -1,11 +1,16 @@
 extern crate core;
 
 use proc_macro::TokenStream;
+#[cfg(feature = "profile")]
 use proc_macro2::TokenStream as TokenStream2;
+#[cfg(feature = "profile")]
 use quote::quote;
+#[cfg(feature = "profile")]
 use syn::parse::{Nothing, Result};
-use syn::{parse_macro_input, parse_quote, ItemFn, Lit};
+#[cfg(feature = "profile")]
+use syn::{ItemFn, Lit, parse_macro_input, parse_quote};
 
+#[cfg(feature = "profile")]
 #[proc_macro_attribute]
 pub fn time_function(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = TokenStream2::from(args);
@@ -29,6 +34,12 @@ pub fn time_function(args: TokenStream, input: TokenStream) -> TokenStream {
             }
         }
     })
+}
+
+#[cfg(not(feature = "profile"))]
+#[proc_macro_attribute]
+pub fn time_function(_args: TokenStream, input: TokenStream) -> TokenStream {
+    input
 }
 
 /// Example use of `#[time_main]`
@@ -57,6 +68,7 @@ pub fn time_function(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 ///     fib(x - 1) + fib(x - 2)
 /// }
+#[cfg(feature = "profile")]
 #[proc_macro_attribute]
 pub fn time_main(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = TokenStream2::from(args);
@@ -82,6 +94,13 @@ pub fn time_main(args: TokenStream, input: TokenStream) -> TokenStream {
     })
 }
 
+#[cfg(not(feature = "profile"))]
+#[proc_macro_attribute]
+pub fn time_main(_args: TokenStream, input: TokenStream) -> TokenStream {
+    input
+}
+
+#[cfg(feature = "profile")]
 fn parse(args: TokenStream2, input: TokenStream2) -> Result<ItemFn> {
     let function: ItemFn = syn::parse2(input)?;
     let _: Nothing = syn::parse2::<Nothing>(args)?;
@@ -89,6 +108,7 @@ fn parse(args: TokenStream2, input: TokenStream2) -> Result<ItemFn> {
     Ok(function)
 }
 
+#[cfg(feature = "profile")]
 fn expand_main(mut function: ItemFn) -> TokenStream2 {
     let stmts = function.block.stmts;
     function.block = Box::new(parse_quote!({
@@ -226,6 +246,7 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
     )
 }
 
+#[cfg(feature = "profile")]
 fn expand_timing(mut function: ItemFn) -> TokenStream2 {
     let name = function.sig.ident.clone().to_string();
     let stmts = function.block.stmts;
@@ -251,6 +272,7 @@ fn expand_timing(mut function: ItemFn) -> TokenStream2 {
 ///     // expressions
 /// }
 /// ```
+#[cfg(feature = "profile")]
 #[proc_macro]
 pub fn time_block(input: TokenStream) -> TokenStream {
     let block_name: Lit = parse_macro_input!(input as Lit);
@@ -266,4 +288,10 @@ pub fn time_block(input: TokenStream) -> TokenStream {
         };
     )
     .into()
+}
+
+#[cfg(not(feature = "profile"))]
+#[proc_macro]
+pub fn time_block(input: TokenStream) -> TokenStream {
+    input
 }
