@@ -1,46 +1,10 @@
 extern crate core;
 
 use proc_macro::TokenStream;
-#[cfg(feature = "profile")]
 use proc_macro2::TokenStream as TokenStream2;
-#[cfg(feature = "profile")]
 use quote::quote;
-#[cfg(feature = "profile")]
 use syn::parse::{Nothing, Result};
-#[cfg(feature = "profile")]
 use syn::{ItemFn, Lit, parse_macro_input, parse_quote};
-
-#[cfg(feature = "profile")]
-#[proc_macro_attribute]
-pub fn time_function(args: TokenStream, input: TokenStream) -> TokenStream {
-    let args = TokenStream2::from(args);
-    let input = TokenStream2::from(input);
-    TokenStream::from(match parse(args, input.clone()) {
-        Ok(function) => {
-            let expanded = expand_timing(function);
-            quote! {
-                #[cfg(not(doc))]
-                #expanded
-                // Keep generated parameter names out of doc builds.
-                #[cfg(doc)]
-                #input
-            }
-        }
-        Err(parse_error) => {
-            let compile_error = parse_error.to_compile_error();
-            quote! {
-                #compile_error
-                #input
-            }
-        }
-    })
-}
-
-#[cfg(not(feature = "profile"))]
-#[proc_macro_attribute]
-pub fn time_function(_args: TokenStream, input: TokenStream) -> TokenStream {
-    input
-}
 
 /// Example use of `#[time_main]`
 ///
@@ -68,7 +32,6 @@ pub fn time_function(_args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 ///     fib(x - 1) + fib(x - 2)
 /// }
-#[cfg(feature = "profile")]
 #[proc_macro_attribute]
 pub fn time_main(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = TokenStream2::from(args);
@@ -77,11 +40,7 @@ pub fn time_main(args: TokenStream, input: TokenStream) -> TokenStream {
         Ok(function) => {
             let expanded = expand_main(function);
             quote! {
-                #[cfg(not(doc))]
                 #expanded
-                // Keep generated parameter names out of doc builds.
-                #[cfg(doc)]
-                #input
             }
         }
         Err(parse_error) => {
@@ -94,13 +53,27 @@ pub fn time_main(args: TokenStream, input: TokenStream) -> TokenStream {
     })
 }
 
-#[cfg(not(feature = "profile"))]
 #[proc_macro_attribute]
-pub fn time_main(_args: TokenStream, input: TokenStream) -> TokenStream {
-    input
+pub fn time_function(args: TokenStream, input: TokenStream) -> TokenStream {
+    let args = TokenStream2::from(args);
+    let input = TokenStream2::from(input);
+    TokenStream::from(match parse(args, input.clone()) {
+        Ok(function) => {
+            let expanded = expand_timing(function);
+            quote! {
+                #expanded
+            }
+        }
+        Err(parse_error) => {
+            let compile_error = parse_error.to_compile_error();
+            quote! {
+                #compile_error
+                #input
+            }
+        }
+    })
 }
 
-#[cfg(feature = "profile")]
 fn parse(args: TokenStream2, input: TokenStream2) -> Result<ItemFn> {
     let function: ItemFn = syn::parse2(input)?;
     let _: Nothing = syn::parse2::<Nothing>(args)?;
@@ -108,7 +81,6 @@ fn parse(args: TokenStream2, input: TokenStream2) -> Result<ItemFn> {
     Ok(function)
 }
 
-#[cfg(feature = "profile")]
 fn expand_main(mut function: ItemFn) -> TokenStream2 {
     let stmts = function.block.stmts;
     function.block = Box::new(parse_quote!({
@@ -189,6 +161,10 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
 
         impl Timer {
             pub unsafe fn new(name: &str, index: usize) -> Self {
+                debug_assert!(GLOBAL_PROFILER_PARENT >= 0);
+                debug_assert!(GLOBAL_PROFILER_PARENT < 4096);
+                debug_assert!(index < 4096);
+
                 let timer = Self {
                     start: read_cpu_timer(),
                     index,
@@ -196,10 +172,14 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
                     old_elapsed_inclusive: PROFILER[index].elapsed_inclusive,
                 };
 
+                let label = name.as_bytes();
+                let len = label.len().min(PROFILER[index].label.len());
+
+                // SAFETY:  Assumes single threaded runtime! Label is an reserved 16 bytes.
+                // Converting the name to a [u8] slice and then filling the reserved space
+                // shouldn't fail. Updating the GLOBAL_PROFILER_PARENT with an asserted value.
                 unsafe {
                     // write the name to the anchor
-                    let label = name.as_bytes();
-                    let len = label.len().min(PROFILER[index].label.len());
                     PROFILER[index].label[..len].copy_from_slice(&label[..len]);
 
                     GLOBAL_PROFILER_PARENT = index;
@@ -211,6 +191,9 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
 
         impl Drop for Timer {
             fn drop(&mut self) {
+                debug_assert!(self.index < 4096);
+                debug_assert!(self.parent_anchor < 4096);
+
                 let elapsed = read_cpu_timer() - self.start;
 
                 unsafe {
@@ -239,14 +222,13 @@ fn expand_main(mut function: ItemFn) -> TokenStream2 {
         }
 
         // initialize the global variables
-        pub static mut PROFILER: [ProfileAnchor; 4096000] = [ProfileAnchor::new(); 4096000];
+        pub static mut PROFILER: [ProfileAnchor; 4096] = [ProfileAnchor::new(); 4096];
         pub static mut GLOBAL_PROFILER_PARENT: usize = 0;
 
         #function
     )
 }
 
-#[cfg(feature = "profile")]
 fn expand_timing(mut function: ItemFn) -> TokenStream2 {
     let name = function.sig.ident.clone().to_string();
     let stmts = function.block.stmts;
@@ -272,7 +254,6 @@ fn expand_timing(mut function: ItemFn) -> TokenStream2 {
 ///     // expressions
 /// }
 /// ```
-#[cfg(feature = "profile")]
 #[proc_macro]
 pub fn time_block(input: TokenStream) -> TokenStream {
     let block_name: Lit = parse_macro_input!(input as Lit);
@@ -283,15 +264,11 @@ pub fn time_block(input: TokenStream) -> TokenStream {
         const HASH: u32 = compile_time_hash(LOCATION);
         const ID: usize = (HASH & 0xFFF) as usize; // Mask to 12 bits (0-4095)
 
+        debug_assert!(ID < 4096);
+
         let timer = unsafe {
             Timer::new(#block_name, ID)
         };
     )
     .into()
-}
-
-#[cfg(not(feature = "profile"))]
-#[proc_macro]
-pub fn time_block(input: TokenStream) -> TokenStream {
-    input
 }

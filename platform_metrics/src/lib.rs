@@ -1,10 +1,16 @@
-use clap::Parser;
-use std::arch::x86_64::_rdtsc;
-
+#[cfg(target_os = "linux")]
 pub fn get_os_time_freq() -> u64 {
     1_000_000
 }
 
+#[cfg(target_os = "windows")]
+pub fn get_os_time_freq() -> u64 {
+    let mut freq = 0i64;
+    unsafe { windows_sys::Win32::System::Performance::QueryPerformanceFrequency(&mut freq) }
+    freq.QuadPart
+}
+
+#[cfg(target_os = "linux")]
 pub fn read_os_timer() -> u64 {
     let mut value = libc::timeval {
         tv_sec: 0,
@@ -18,18 +24,30 @@ pub fn read_os_timer() -> u64 {
     get_os_time_freq() * value.tv_sec as u64 + value.tv_usec as u64
 }
 
+#[cfg(target_os = "macos")]
+pub fn read_os_timer() -> u64 {
+    todo!()
+}
+
+#[cfg(target_os = "windows")]
+pub fn read_os_timer() -> u64 {
+    let mut value = 0i64;
+    unsafe { windows_sys::Win32::System::Performance::QueryPerformanceCounter(&mut value) }
+    value.QuadPart
+}
+
+#[cfg(target_arch = "x86_64")]
+pub fn read_cpu_timer() -> u64 {
+    unsafe { std::arch::x86_64::_rdtsc() }
+}
+
+#[cfg(target_arch = "arm")]
 pub fn read_cpu_timer() -> u64 {
     unsafe { _rdtsc() }
 }
 
-#[derive(Parser)]
-struct Args {
-    #[arg(short)]
-    ms_to_wait: Option<u64>,
-}
-
 pub fn estimate_cpu_freq() -> u64 {
-    let ms_to_wait = Args::parse().ms_to_wait.unwrap_or(1_000);
+    let ms_to_wait = 100u64;
 
     let os_freq = get_os_time_freq();
 
