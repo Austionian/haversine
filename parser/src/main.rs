@@ -3,8 +3,8 @@ mod parser;
 use clap::Parser;
 use haversine::haversine;
 use parser::parse;
+use peach_profiler::{time_block, time_main};
 use std::fs;
-use timing_macro::{time_block, time_main};
 
 #[derive(Parser, Debug)]
 #[command(version, about)]

@@ -105,14 +105,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
-name = "cpu_timer_guess_freq"
-version = "0.1.0"
-dependencies = [
- "clap",
- "platform_metrics",
-]
-
-[[package]]
 name = "generator"
 version = "0.1.0"
 dependencies = [
@@ -189,16 +181,38 @@ dependencies = [
  "clap",
  "haversine",
  "json",
- "platform_metrics",
- "timing_macro",
+ "peach_profiler",
 ]
 
 [[package]]
-name = "platform_metrics"
-version = "0.1.0"
+name = "peach_metrics"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f0a92c1216767445f6d5737e831d072d29725cabaabdfe612b834d7ff14df77"
 dependencies = [
  "libc",
  "windows-sys 0.61.0",
+]
+
+[[package]]
+name = "peach_pit"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4522c3bc4d56775dedc46accf4eed8d99eb0160984cc91ce31a8d10735193cdc"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "peach_profiler"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "249bfda6bcebd8f5cc2053ea34e990542291f0dfb3992c56939f5930bbe20fa6"
+dependencies = [
+ "peach_metrics",
+ "peach_pit",
 ]
 
 [[package]]
@@ -316,16 +330,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "timing_macro"
-version = "0.1.0"
-dependencies = [
- "platform_metrics",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

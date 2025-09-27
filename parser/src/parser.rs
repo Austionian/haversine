@@ -1,6 +1,6 @@
 use json::{Json, Pair};
+use peach_profiler::time_function;
 use std::{fmt::Debug, str::FromStr};
-use timing_macro::time_function;
 
 enum JsonError {
     Pair(String),
@@ -49,7 +49,6 @@ impl FromStr for JsonWrapper {
     }
 }
 
-#[time_function]
 fn parse_f64(s: &str) -> Result<f64, JsonError> {
     if s.contains('}') {
         return parse_f64(s.split_once('}').unwrap().0);
@@ -65,7 +64,6 @@ impl FromStr for PairWrapper {
 
     // Assumes we're inside the opening bracket
     // s: r#""x0": 123.215645, "y0": 1.6546, "x1": -15.5466, "y1": -56.56464}"
-    #[time_function]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut pair = Pair {
             x0: 0.0,
